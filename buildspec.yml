@@ -39,7 +39,7 @@ phases:
       - rm cmdline.zip
 
       - echo "=== Exportando herramientas CLI en PATH ==="
-      - export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH  :contentReference[oaicite:9]{index=9}
+      - export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH
 
       - echo "=== Aceptando licencias y descargando SDKs ==="
       - yes | sdkmanager --licenses                # sdkmanager disponible tras el export :contentReference[oaicite:10]{index=10}
