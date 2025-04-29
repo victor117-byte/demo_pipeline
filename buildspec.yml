@@ -1,83 +1,85 @@
 version: 0.2
-run-as: root
-
-env:
-  variables:
-    ANDROID_HOME: $CODEBUILD_SRC_DIR/android-sdk
-    EMULATOR_NAME: testAVD
-    SYSTEM_IMAGE: "system-images;android-29;google_apis;x86_64"
-    TIMEOUT: 900
 
 phases:
   install:
+    runtime-versions:
+      java: corretto11
+      python: 3.8
     commands:
-      - echo "=== Instalando dependencias del sistema ==="
-      # Utilidades básicas
+      - echo "Actualizando paquetes del sistema..."
       - yum update -y
+
+      - echo "Instalando dependencias necesarias..."
       - yum install -y wget unzip nc
-      # Java 11 headless usando Amazon Corretto
-      - yum install -y java-11-amazon-corretto-headless
-      - java -version
 
-      # Node.js & Appium CLI
-      - curl -sL https://rpm.nodesource.com/setup_18.x | bash -
-      - yum install -y nodejs
-      - npm install -g appium@next
-      - npm install -g appium driver install uiautomator2
+      - echo "Configurando variables de entorno para Android SDK..."
+      - export ANDROID_HOME=$CODEBUILD_SRC_DIR/android-sdk
+      - export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
 
-      # Python y librerías de testing
-      - yum install -y python3 python3-pip
-      - pip3 install --upgrade pip
-      - pip3 install robotframework robotframework-appiumlibrary Appium-Python-Client
-
-      # Android SDK Command-Line Tools
-      - echo "=== Configurando Android SDK ==="
+      - echo "Descargando Command Line Tools de Android..."
       - mkdir -p $ANDROID_HOME/cmdline-tools
-      - wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdline.zip
-      - unzip cmdline.zip -d $ANDROID_HOME/cmdline-tools
-      - rm cmdline.zip
-      - yes | $ANDROID_HOME/cmdline-tools/tools/bin/sdkmanager --licenses --sdk_root=$ANDROID_HOME
-      - $ANDROID_HOME/cmdline-tools/tools/bin/sdkmanager --sdk_root=$ANDROID_HOME \
-          "platform-tools" "emulator" "platforms;android-29" "$SYSTEM_IMAGE" "build-tools;29.0.3"
+      - cd $ANDROID_HOME/cmdline-tools
+      - wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdline-tools.zip
+      - unzip cmdline-tools.zip -d latest
+      - rm cmdline-tools.zip
+
+      - echo "Aceptando licencias y descargando componentes del SDK..."
+      - yes | sdkmanager --licenses
+      - sdkmanager "platform-tools" "platforms;android-29" "emulator" "system-images;android-29;google_apis;x86_64" "build-tools;29.0.3"
 
   pre_build:
     commands:
-      - echo "=== Creando y lanzando AVD ==="
-      # Crear AVD (o forzar recreación)
-      - echo no | $ANDROID_HOME/cmdline-tools/tools/bin/avdmanager create avd \
-          -n $EMULATOR_NAME -k "$SYSTEM_IMAGE" -d pixel_2 --force
-      # Ajuste de memoria
-      - echo "hw.ramSize=2048" >> ~/.android/avd/$EMULATOR_NAME.avd/config.ini
-      # Lanzar emulador en background
-      - nohup $ANDROID_HOME/emulator/emulator \
-          -avd $EMULATOR_NAME -no-window -no-audio -accel off \
-          -gpu swiftshader_indirect -no-boot-anim -writable-system \
-          > emulator.log 2>&1 &
-      - echo "Esperando a que adb registre el emulador..."
-      - until adb devices | grep -w device; do sleep 2; done
+      - echo "Creando AVD (Android Virtual Device)..."
+      - echo "no" | avdmanager create avd -n testAVD -k "system-images;android-29;google_apis;x86_64" -d "pixel_2" --force
+
+      - echo "Iniciando emulador en segundo plano..."
+      - nohup emulator -avd testAVD -no-window -no-audio -accel off -gpu swiftshader_indirect -no-boot-anim -writable-system -no-snapshot > emulator.log 2>&1 &
+
+      - echo "Esperando que el emulador inicie completamente..."
+      - |
+        TIMEOUT=300
+        TIME_ELAPSED=0
+        while [[ $(adb shell getprop sys.boot_completed | tr -d '\r') != "1" ]]; do
+          sleep 5
+          TIME_ELAPSED=$((TIME_ELAPSED + 5))
+          if [ $TIME_ELAPSED -ge $TIMEOUT ]; then
+            echo "❌ Timeout: El emulador no completó el arranque en $TIMEOUT segundos."
+            exit 1
+          fi
+        done
+        echo "✅ Emulador listo para ejecutar pruebas."
 
   build:
     commands:
-      - echo "=== Levantando Appium ==="
-      - nohup appium --port 4724 --log-level warn > appium.log 2>&1 &
-      - sleep 10
-      - echo "=== Ejecutando Robot Framework Tests ==="
+      - echo "Instalando dependencias de prueba..."
+      - pip install robotframework robotframework-appiumlibrary Appium-Python-Client
+
+      - echo "Instalando Appium y el driver UiAutomator2..."
+      - npm install -g appium@next
+      - appium driver install uiautomator2
+
+      - echo "Iniciando servidor de Appium..."
+      - nohup appium --port 4724 --log appium.log > /dev/null 2>&1 &
+
+      - echo "Esperando que Appium esté disponible..."
+      - |
+        for i in {1..30}; do
+          if nc -z localhost 4724; then
+            echo "✅ Appium está escuchando en el puerto 4724"
+            break
+          fi
+          sleep 1
+        done
+
+      - echo "Ejecutando pruebas con Robot Framework..."
       - mkdir -p results
-      - robot --loglevel TRACE --output results/output.xml tests/*.robot
+      - robot --loglevel TRACE --output results/output.xml tests/home.robot
 
   post_build:
     commands:
-      - echo "=== Publicando logs y resultados ==="
-      - echo "-- Lista de resultados --"
-      - ls -R results
-      - echo "-- Emulador log --"
-      - cat emulator.log | tail -n 50
-      - echo "-- Appium log --"
-      - cat appium.log | tail -n 50
-
+      - echo "Publicando resultados de las pruebas..."
 artifacts:
   files:
-    - results/**
-    - emulator.log
+    - results/output.xml
     - appium.log
-  discard-paths: yes
+    - emulator.log
