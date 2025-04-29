@@ -3,50 +3,24 @@ run-as: root                                         # Ejecutar como root para i
 
 env:
   variables:
-    ANDROID_HOME: $CODEBUILD_SRC_DIR/android-sdk     # Directorio para el SDK de Android :contentReference[oaicite:2]{index=2}
-    EMULATOR_NAME: testAVD                           # Nombre del AVD que crearemos :contentReference[oaicite:3]{index=3}
-    SYSTEM_IMAGE: "system-images;android-29;google_apis;x86_64"
-    TIMEOUT: 300                                     # Timeout máximo para el arranque :contentReference[oaicite:4]{index=4}
+    ANDROID_HOME: $CODEBUILD_SRC_DIR/android-sdk
+    PATH: $ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH  # PATH global
 
 phases:
   install:
     commands:
-      - echo "=== Actualizando sistema e instalando utilidades ==="
-      - yum update -y                                 # Amazon Linux 2 usa yum 
-      - yum install -y wget unzip nc                 # Utilidades básicas :contentReference[oaicite:5]{index=5}
-
-      - echo "=== Instalando Java Corretto 11 Headless ==="
-      - yum install -y java-11-amazon-corretto-headless  # OpenJDK 11 en Corretto 
-      - java -version                                # Verifica instalación de Java
-
-      - echo "=== Instalando Node.js 18 y Appium CLI ==="
-      - curl -sL https://rpm.nodesource.com/setup_18.x | bash -  
-      - yum install -y nodejs                       # Node.js v18 :contentReference[oaicite:6]{index=6}
-      - npm install -g appium@next                  # Appium CLI :contentReference[oaicite:7]{index=7}
-      - appium driver install uiautomator2          # Driver UiAutomator2
-
-      - echo "=== Instalando Python y Robot Framework libs ==="
-      - yum install -y python3 python3-pip          # Python 3 y pip :contentReference[oaicite:8]{index=8}
-      - pip3 install --upgrade pip  
-      - pip3 install robotframework \
-                     robotframework-appiumlibrary \
-                     Appium-Python-Client            # Bibliotecas de testing
+      # ... (instalación de paquetes previos)
 
       - echo "=== Descargando Android SDK Command-Line Tools ==="
-      - mkdir -p $ANDROID_HOME/cmdline-tools/latest
+      - mkdir -p $ANDROID_HOME/cmdline-tools
       - wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdline.zip
-      - unzip cmdline.zip -d $ANDROID_HOME/cmdline-tools/latest
+      - unzip cmdline.zip -d $ANDROID_HOME/cmdline-tools
+      - mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest  # Estructura correcta
       - rm cmdline.zip
 
-      - echo "=== Exportando herramientas CLI en PATH ==="
-      - export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH
-
       - echo "=== Aceptando licencias y descargando SDKs ==="
-      - yes | sdkmanager --licenses                # sdkmanager disponible tras el export :contentReference[oaicite:10]{index=10}
-      - sdkmanager --sdk_root=$ANDROID_HOME \
-          "platform-tools" "emulator" \
-          "platforms;android-29" "$SYSTEM_IMAGE" \
-          "build-tools;29.0.3"
+      - yes | sdkmanager --licenses --sdk_root=$ANDROID_HOME  # SDK root explícito
+      - sdkmanager --sdk_root=$ANDROID_HOME "platform-tools" "emulator" "platforms;android-29" "$SYSTEM_IMAGE" "build-tools;29.0.3"
 
   pre_build:
     commands:
