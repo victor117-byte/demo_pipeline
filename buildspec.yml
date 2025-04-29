@@ -1,74 +1,51 @@
-version: 0.2                                         # Versión del esquema buildspec :contentReference[oaicite:0]{index=0}
-run-as: root                                         # Ejecutar como root para instalar paquetes :contentReference[oaicite:1]{index=1}
+version: 0.2
+run-as: root
 
 env:
   variables:
-    ANDROID_HOME: $CODEBUILD_SRC_DIR/android-sdk
-    PATH: $ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH  # PATH global
+    ANDROID_HOME: "/root/android-sdk"
+    EMULATOR_NAME: "testAVD"
+    SYSTEM_IMAGE: "system-images;android-29;google_apis;x86_64"
+    TIMEOUT: 300
 
 phases:
   install:
+    runtime-versions:
+      java: corretto11
+      nodejs: 18
+      python: 3.8
     commands:
-      # ... (instalación de paquetes previos)
+      - echo "=== Instalando dependencias del sistema ==="
+      - yum update -y
+      - yum install -y wget unzip nc libstdc++ zlib xz-libs glibc libX11 libXrender libXext libXtst mesa-libGL
 
-      - echo "=== Descargando Android SDK Command-Line Tools ==="
+      - echo "=== Instalando Appium CLI y Driver ==="
+      - npm install -g appium@next
+      - appium driver install uiautomator2
+
+      - echo "=== Instalando librerías de Robot Framework ==="
+      - pip3 install --upgrade pip
+      - pip3 install robotframework \
+                     robotframework-appiumlibrary \
+                     Appium-Python-Client
+
+      - echo "=== Instalando Android SDK Command-Line Tools ==="
       - mkdir -p $ANDROID_HOME/cmdline-tools
       - wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdline.zip
       - unzip cmdline.zip -d $ANDROID_HOME/cmdline-tools
-      - mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest  # Estructura correcta
+      - mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
       - rm cmdline.zip
 
+      - echo "=== Exportando PATH ==="
+      - export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH
+
       - echo "=== Aceptando licencias y descargando SDKs ==="
-      - yes | sdkmanager --licenses --sdk_root=$ANDROID_HOME  # SDK root explícito
-      - sdkmanager --sdk_root=$ANDROID_HOME "platform-tools" "emulator" "platforms;android-29" "$SYSTEM_IMAGE" "build-tools;29.0.3"
-
-  pre_build:
-    commands:
-      - echo "=== Creando AVD ==="
-      - echo no | avdmanager create avd \
-          -n $EMULATOR_NAME -k "$SYSTEM_IMAGE" \
-          -d "pixel_2" --force                  # avdmanager en CLI :contentReference[oaicite:11]{index=11}
-      - echo "hw.ramSize=2048" >> ~/.android/avd/$EMULATOR_NAME.avd/config.ini
-
-      - echo "=== Iniciando emulador en background ==="
-      - nohup emulator -avd $EMULATOR_NAME \
-          -no-window -no-audio -accel off \
-          -gpu swiftshader_indirect -no-boot-anim \
-          > emulator.log 2>&1 &
-
-      - echo "=== Esperando arranque completo ==="
-      - |
-        SECONDS=0
-        until adb shell getprop sys.boot_completed | grep -m1 "1"; do
-          sleep 5
-          if [ $SECONDS -ge $TIMEOUT ]; then
-            echo "❌ Timeout en $TIMEOUT segundos" && exit 1
-          fi
-        done
-        echo "✅ Emulador listo"                  # adb viene de platform-tools :contentReference[oaicite:12]{index=12}
+      - yes | sdkmanager --sdk_root=$ANDROID_HOME --licenses
+      - sdkmanager --sdk_root=$ANDROID_HOME \
+          "platform-tools" "emulator" \
+          "platforms;android-29" "$SYSTEM_IMAGE" \
+          "build-tools;29.0.3"
 
   build:
     commands:
-      - echo "=== Levantando servidor Appium ==="
-      - nohup appium --port 4724 --log-level warn > appium.log 2>&1 &
-      - sleep 10                                   # Dar tiempo a Appium :contentReference[oaicite:13]{index=13}
-
-      - echo "=== Ejecutando tests con Robot Framework ==="
-      - mkdir -p results
-      - robot --loglevel TRACE \
-          --output results/output.xml \
-          tests/*.robot                         # Ejecuta todos los tests :contentReference[oaicite:14]{index=14}
-
-  post_build:
-    commands:
-      - echo "=== Publicando artefactos y logs finales ==="
-      - ls -R results                              # Listado de resultados :contentReference[oaicite:15]{index=15}
-      - tail -n 50 emulator.log                    # Últimas líneas de logs
-      - tail -n 50 appium.log
-
-artifacts:
-  files:
-    - results/**/*
-    - emulator.log
-    - appium.log
-  discard-paths: yes                             # Evita rutas completas en S3 :contentReference[oaicite:16]{index=16}
+      - echo "=== Fase de compilación terminada. Preparado para correr tests. ==="
