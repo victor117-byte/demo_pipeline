@@ -1,47 +1,45 @@
-version: 0.2                                       # Esquema de buildspec para CodeBuild :contentReference[oaicite:0]{index=0}
-run-as: root                                       # Ejecuta como root para poder instalar paquetes :contentReference[oaicite:1]{index=1}
+version: 0.2                                     # Versión del esquema de Buildspec :contentReference[oaicite:0]{index=0}
 
 env:
   variables:
-    ANDROID_HOME: $CODEBUILD_SRC_DIR/android-sdk    # Ruta base del Android SDK
-    EMULATOR_NAME: testAVD                          # Nombre del AVD a crear
+    ANDROID_HOME: $CODEBUILD_SRC_DIR/android-sdk  # Define ruta del SDK de Android
+    EMULATOR_NAME: testAVD                        # Nombre del AVD
     SYSTEM_IMAGE: "system-images;android-29;google_apis;x86_64"
-    PATH:                                             # Añade las herramientas de Android al PATH
-      $ANDROID_HOME/emulator:
-      $ANDROID_HOME/platform-tools:
-      $ANDROID_HOME/cmdline-tools/latest/bin:
-      $PATH
+    PATH:                                          # PATH como cadena, no como mapa
+      $ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
 
 phases:
   install:
     commands:
-      - echo "=== Actualizando paquetes y utilidades básicas ==="
-      - yum update -y                                 # Amazon Linux 2 usa yum :contentReference[oaicite:2]{index=2}
-      - yum install -y wget unzip nc                  # wget, unzip y nc para utilidades de red
+      - echo "=== Actualizando sistema e instalando utilidades ==="
+      - yum update -y                              # Amazon Linux 2 usa yum :contentReference[oaicite:1]{index=1}
+      - yum install -y wget unzip nc               # wget, unzip y nc para utilidades básicas
 
       - echo "=== Instalando Java Corretto 11 Headless ==="
-      - yum install -y java-11-amazon-corretto-headless  # OpenJDK 11 en Corretto 
-      - java -version                                 # Verificar instalación de Java
+      - yum install -y java-11-amazon-corretto-headless  # Corretto 11 (OpenJDK 11) :contentReference[oaicite:2]{index=2}
+      - java -version                              # Verifica versión de Java
 
-      - echo "=== Instalando Node.js 18 y Appium CLI ==="
+      - echo "=== Instalando Node.js v18 y Appium ==="
       - curl -sL https://rpm.nodesource.com/setup_18.x | bash -
-      - yum install -y nodejs                         # Node.js v18 :contentReference[oaicite:3]{index=3}
-      - npm install -g appium@next                    # Appium último
-      - appium driver install uiautomator2            # Driver UIAutomator2
+      - yum install -y nodejs                      # Node.js 18 :contentReference[oaicite:3]{index=3}
+      - npm install -g appium@next                 # Appium CLI :contentReference[oaicite:4]{index=4}
+      - appium driver install uiautomator2         # Driver UiAutomator2
 
-      - echo "=== Instalando Python3 y librerías de Robot Framework ==="
-      - yum install -y python3 python3-pip            # Python 3.8 disponible en standard:4.0 :contentReference[oaicite:4]{index=4}
+      - echo "=== Instalando Python y Robot Framework libs ==="
+      - yum install -y python3 python3-pip         # Python 3 y pip :contentReference[oaicite:5]{index=5}
       - pip3 install --upgrade pip
-      - pip3 install robotframework robotframework-appiumlibrary Appium-Python-Client
+      - pip3 install robotframework \
+                     robotframework-appiumlibrary \
+                     Appium-Python-Client          # Instalación de librerías :contentReference[oaicite:6]{index=6}
 
-      - echo "=== Descargando y configurando Android SDK CLI ==="
+      - echo "=== Configurando Android SDK CLI ==="
       - mkdir -p $ANDROID_HOME/cmdline-tools/latest
       - wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdline.zip
       - unzip cmdline.zip -d $ANDROID_HOME/cmdline-tools/latest
       - rm cmdline.zip
 
-      - echo "=== Aceptando licencias y descargando paquetes del SDK ==="
-      - yes | sdkmanager --licenses               # sdkmanager disponible en cmdline-tools/latest/bin :contentReference[oaicite:5]{index=5}
+      - echo "=== Aceptando licencias SDK y descargando componentes ==="
+      - yes | sdkmanager --licenses               # sdkmanager en cmdline-tools/latest/bin :contentReference[oaicite:7]{index=7}
       - sdkmanager --sdk_root=$ANDROID_HOME \
           "platform-tools" "emulator" \
           "platforms;android-29" "$SYSTEM_IMAGE" \
@@ -53,10 +51,10 @@ phases:
       - echo no | avdmanager create avd \
           -n $EMULATOR_NAME \
           -k "$SYSTEM_IMAGE" \
-          -d "pixel_2" --force                  # avdmanager en el mismo binario que sdkmanager :contentReference[oaicite:6]{index=6}
+          -d "pixel_2" --force                   # avdmanager en el mismo directorio :contentReference[oaicite:8]{index=8}
       - echo "hw.ramSize=2048" >> ~/.android/avd/$EMULATOR_NAME.avd/config.ini
 
-      - echo "=== Iniciando emulador Android en segundo plano ==="
+      - echo "=== Iniciando emulador en segundo plano ==="
       - nohup emulator -avd $EMULATOR_NAME \
           -no-window -no-audio -accel off \
           -gpu swiftshader_indirect -no-boot-anim \
@@ -73,26 +71,23 @@ phases:
             exit 1
           fi
         done
-        echo "✅ Emulador listo."                    # ADB forma parte de platform-tools :contentReference[oaicite:7]{index=7}
+        echo "✅ Emulador listo."                  # adb en platform-tools :contentReference[oaicite:9]{index=9}
 
   build:
     commands:
-      - echo "=== Instalando dependencias de prueba en Python ==="
-      - pip3 install robotframework robotframework-appiumlibrary Appium-Python-Client
-
-      - echo "=== Levantando servidor Appium ==="
+      - echo "=== Levantando Appium server ==="
       - nohup appium --port 4724 --log-level warn > appium.log 2>&1 &
-      - sleep 10                                   # Dar tiempo a Appium para inicializar
+      - sleep 10                                    # Dar tiempo a Appium :contentReference[oaicite:10]{index=10}
 
-      - echo "=== Ejecutando tests con Robot Framework ==="
+      - echo "=== Ejecutando Robot Framework Tests ==="
       - mkdir -p results
       - robot --loglevel TRACE \
           --output results/output.xml \
-          tests/*.robot
+          tests/*.robot                           # Ubicación de tests :contentReference[oaicite:11]{index=11}
 
   post_build:
     commands:
-      - echo "=== Publicando artefactos y logs ==="
+      - echo "=== Publicando artefactos y últimos logs ==="
       - ls -R results
       - tail -n 50 emulator.log
       - tail -n 50 appium.log
@@ -102,4 +97,4 @@ artifacts:
     - results/**/*
     - emulator.log
     - appium.log
-  discard-paths: yes
+  discard-paths: yes                              # Evita preservar rutas de archivos :contentReference[oaicite:12]{index=12}
