@@ -11,48 +11,69 @@ env:
 phases:
   install:
     commands:
-      - echo "Instalando dependencias del sistema..."
-      - yum update -y                                      # Amazon Linux 2 :contentReference[oaicite:1]{index=1}
-      - yum install -y java-11-openjdk-headless wget unzip nc # SDK & utilidades
+      - echo "=== Instalando dependencias del sistema ==="
+      # Utilidades básicas
+      - yum update -y
+      - yum install -y wget unzip nc
+      # Java 11 headless usando Amazon Corretto
+      - yum install -y java-11-amazon-corretto-headless
+      - java -version
+
+      # Node.js & Appium CLI
       - curl -sL https://rpm.nodesource.com/setup_18.x | bash -
-      - yum install -y nodejs                              # Node.js & npm 
-      - npm install -g appium@next                         # Appium CLI 
-      - npm install -g appium driver install uiautomator2  # Driver UIAutomator2
-      - yum install -y python3 python3-pip                 # Python 
-      - pip3 install robotframework robotframework-appiumlibrary Appium-Python-Client # Robot libs :contentReference[oaicite:2]{index=2}
-      - echo "Instalando Android SDK..."
+      - yum install -y nodejs
+      - npm install -g appium@next
+      - npm install -g appium driver install uiautomator2
+
+      # Python y librerías de testing
+      - yum install -y python3 python3-pip
+      - pip3 install --upgrade pip
+      - pip3 install robotframework robotframework-appiumlibrary Appium-Python-Client
+
+      # Android SDK Command-Line Tools
+      - echo "=== Configurando Android SDK ==="
       - mkdir -p $ANDROID_HOME/cmdline-tools
       - wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdline.zip
       - unzip cmdline.zip -d $ANDROID_HOME/cmdline-tools
-      - yes | $ANDROID_HOME/cmdline-tools/tools/bin/sdkmanager --licenses --sdk_root=$ANDROID_HOME # Licencias :contentReference[oaicite:3]{index=3}
-      - $ANDROID_HOME/cmdline-tools/tools/bin/sdkmanager --sdk_root=$ANDROID_HOME "platform-tools" "emulator" "platforms;android-29" "$SYSTEM_IMAGE" "build-tools;29.0.3"
+      - rm cmdline.zip
+      - yes | $ANDROID_HOME/cmdline-tools/tools/bin/sdkmanager --licenses --sdk_root=$ANDROID_HOME
+      - $ANDROID_HOME/cmdline-tools/tools/bin/sdkmanager --sdk_root=$ANDROID_HOME \
+          "platform-tools" "emulator" "platforms;android-29" "$SYSTEM_IMAGE" "build-tools;29.0.3"
 
   pre_build:
     commands:
-      - echo "Creando AVD si no existe..."
-      - echo no | $ANDROID_HOME/cmdline-tools/tools/bin/avdmanager create avd -n $EMULATOR_NAME -k "$SYSTEM_IMAGE" -d pixel_2 --force
-      - echo "Configurando AVD..."
+      - echo "=== Creando y lanzando AVD ==="
+      # Crear AVD (o forzar recreación)
+      - echo no | $ANDROID_HOME/cmdline-tools/tools/bin/avdmanager create avd \
+          -n $EMULATOR_NAME -k "$SYSTEM_IMAGE" -d pixel_2 --force
+      # Ajuste de memoria
       - echo "hw.ramSize=2048" >> ~/.android/avd/$EMULATOR_NAME.avd/config.ini
-      - echo "Iniciando emulador en background..."
-      - nohup $ANDROID_HOME/emulator/emulator -avd $EMULATOR_NAME -no-window -no-audio -accel off -gpu swiftshader_indirect -no-boot-anim -writable-system -no-snapshot > emulator.log 2>&1 &
-      - echo "Esperando a que adb detecte el dispositivo..."
+      # Lanzar emulador en background
+      - nohup $ANDROID_HOME/emulator/emulator \
+          -avd $EMULATOR_NAME -no-window -no-audio -accel off \
+          -gpu swiftshader_indirect -no-boot-anim -writable-system \
+          > emulator.log 2>&1 &
+      - echo "Esperando a que adb registre el emulador..."
       - until adb devices | grep -w device; do sleep 2; done
 
   build:
     commands:
-      - echo "Iniciando Appium server..."
+      - echo "=== Levantando Appium ==="
       - nohup appium --port 4724 --log-level warn > appium.log 2>&1 &
-      - sleep 10                                          # Dar tiempo a Appium :contentReference[oaicite:4]{index=4}
-      - echo "Ejecutando pruebas Robot Framework..."
+      - sleep 10
+      - echo "=== Ejecutando Robot Framework Tests ==="
       - mkdir -p results
-      - robot --loglevel TRACE --output results/output.xml tests/home.robot
+      - robot --loglevel TRACE --output results/output.xml tests/*.robot
 
   post_build:
     commands:
-      - echo "Publicando logs y resultados..."
-      - ls -la results
-      - cat emulator.log
-      - cat appium.log
+      - echo "=== Publicando logs y resultados ==="
+      - echo "-- Lista de resultados --"
+      - ls -R results
+      - echo "-- Emulador log --"
+      - cat emulator.log | tail -n 50
+      - echo "-- Appium log --"
+      - cat appium.log | tail -n 50
 
 artifacts:
   files:
