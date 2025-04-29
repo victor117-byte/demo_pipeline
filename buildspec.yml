@@ -41,10 +41,8 @@ phases:
 
       - echo "=== Aceptando licencias y descargando SDKs ==="
       - yes | sdkmanager --sdk_root=$ANDROID_HOME --licenses
-      - sdkmanager --sdk_root=$ANDROID_HOME \
-          "platform-tools" "emulator" \
-          "platforms;android-29" "$SYSTEM_IMAGE" \
-          "build-tools;29.0.3"
+      - sdkmanager --sdk_root=$ANDROID_HOME "platform-tools" "emulator" "platforms;android-29" "$SYSTEM_IMAGE" "build-tools;29.0.3"
+
 
   build:
     commands:
