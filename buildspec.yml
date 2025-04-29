@@ -1,87 +1,100 @@
-name: Android UI Tests
+version: 0.2                                         # Versión del esquema buildspec :contentReference[oaicite:0]{index=0}
+run-as: root                                         # Ejecutar como root para instalar paquetes :contentReference[oaicite:1]{index=1}
 
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'apps/**'
-      - 'tests/**'
-  workflow_dispatch:
+env:
+  variables:
+    ANDROID_HOME: $CODEBUILD_SRC_DIR/android-sdk     # Directorio para el SDK de Android :contentReference[oaicite:2]{index=2}
+    EMULATOR_NAME: testAVD                           # Nombre del AVD que crearemos :contentReference[oaicite:3]{index=3}
+    SYSTEM_IMAGE: "system-images;android-29;google_apis;x86_64"
+    TIMEOUT: 300                                     # Timeout máximo para el arranque :contentReference[oaicite:4]{index=4}
 
-jobs:
-  test_android:
-    runs-on: ubuntu-latest
+phases:
+  install:
+    commands:
+      - echo "=== Actualizando sistema e instalando utilidades ==="
+      - yum update -y                                 # Amazon Linux 2 usa yum 
+      - yum install -y wget unzip nc                 # Utilidades básicas :contentReference[oaicite:5]{index=5}
 
-    steps:
-    # 1. Checkout del código
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - echo "=== Instalando Java Corretto 11 Headless ==="
+      - yum install -y java-11-amazon-corretto-headless  # OpenJDK 11 en Corretto 
+      - java -version                                # Verifica instalación de Java
 
-    # 2. Configurar Java 11
-    - name: Set up JDK 11
-      uses: actions/setup-java@v3
-      with:
-        distribution: temurin
-        java-version: '11'  
-    # Java Corretto es equivalente a OpenJDK en CI :contentReference[oaicite:0]{index=0}
+      - echo "=== Instalando Node.js 18 y Appium CLI ==="
+      - curl -sL https://rpm.nodesource.com/setup_18.x | bash -  
+      - yum install -y nodejs                       # Node.js v18 :contentReference[oaicite:6]{index=6}
+      - npm install -g appium@next                  # Appium CLI :contentReference[oaicite:7]{index=7}
+      - appium driver install uiautomator2          # Driver UiAutomator2
 
-    # 3. Configurar Android SDK
-    - name: Set up Android SDK
-      uses: android-actions/setup-android@v3
-      with:
-        api-level: 29
-        build-tools: '29.0.3'
-        cmake: false  
-    # Esta acción instala cmdline-tools y platform-tools, acepta licencias y añade sdkmanager/adb al PATH :contentReference[oaicite:1]{index=1}
+      - echo "=== Instalando Python y Robot Framework libs ==="
+      - yum install -y python3 python3-pip          # Python 3 y pip :contentReference[oaicite:8]{index=8}
+      - pip3 install --upgrade pip  
+      - pip3 install robotframework \
+                     robotframework-appiumlibrary \
+                     Appium-Python-Client            # Bibliotecas de testing
 
-    # 4. Crear y arrancar el emulador
-    - name: Create AVD
-      run: echo "no" | avdmanager create avd -n testAVD -k "system-images;android-29;google_apis;x86_64" --force
-    - name: Start emulator
-      run: |
-        nohup emulator -avd testAVD -no-window -no-audio &
-        adb wait-for-device
-        adb shell input keyevent 82
-    - name: Wait for emulator boot
-      run: timeout 300 bash -c 'until adb shell getprop sys.boot_completed | grep -m1 "1"; do sleep 5; done'
-    # Espera hasta que el emulador reporte arranque completo :contentReference[oaicite:2]{index=2}
+      - echo "=== Descargando Android SDK Command-Line Tools ==="
+      - mkdir -p $ANDROID_HOME/cmdline-tools/latest
+      - wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdline.zip
+      - unzip cmdline.zip -d $ANDROID_HOME/cmdline-tools/latest
+      - rm cmdline.zip
 
-    # 5. Configurar Python y Appium
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.x'
-    - name: Install test dependencies
-      run: |
-        pip install --upgrade pip
-        pip install robotframework robotframework-appiumlibrary Appium-Python-Client
-        npm install -g appium@next
-        appium driver install uiautomator2
+      - echo "=== Exportando herramientas CLI en PATH ==="
+      - export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH  :contentReference[oaicite:9]{index=9}
 
-    # 6. Iniciar Appium y ejecutar pruebas
-    - name: Start Appium server
-      run: |
-        nohup appium --port 4724 --log-level warn > appium.log 2>&1 &
-        sleep 10
-    - name: Run Robot Framework tests
-      run: |
-        mkdir -p results
-        robot --loglevel TRACE --output results/output.xml tests/home.robot
+      - echo "=== Aceptando licencias y descargando SDKs ==="
+      - yes | sdkmanager --licenses                # sdkmanager disponible tras el export :contentReference[oaicite:10]{index=10}
+      - sdkmanager --sdk_root=$ANDROID_HOME \
+          "platform-tools" "emulator" \
+          "platforms;android-29" "$SYSTEM_IMAGE" \
+          "build-tools;29.0.3"
 
-    # 7. Publicar artefactos
-    - name: Upload test results
-      uses: actions/upload-artifact@v3
-      with:
-        name: results
-        path: results
-    - name: Upload Appium log
-      uses: actions/upload-artifact@v3
-      with:
-        name: appium-log
-        path: appium.log
-    - name: Upload emulator log
-      uses: actions/upload-artifact@v3
-      with:
-        name: emulator-log
-        path: ~/.android/avd/testAVD.avd/*.log
+  pre_build:
+    commands:
+      - echo "=== Creando AVD ==="
+      - echo no | avdmanager create avd \
+          -n $EMULATOR_NAME -k "$SYSTEM_IMAGE" \
+          -d "pixel_2" --force                  # avdmanager en CLI :contentReference[oaicite:11]{index=11}
+      - echo "hw.ramSize=2048" >> ~/.android/avd/$EMULATOR_NAME.avd/config.ini
+
+      - echo "=== Iniciando emulador en background ==="
+      - nohup emulator -avd $EMULATOR_NAME \
+          -no-window -no-audio -accel off \
+          -gpu swiftshader_indirect -no-boot-anim \
+          > emulator.log 2>&1 &
+
+      - echo "=== Esperando arranque completo ==="
+      - |
+        SECONDS=0
+        until adb shell getprop sys.boot_completed | grep -m1 "1"; do
+          sleep 5
+          if [ $SECONDS -ge $TIMEOUT ]; then
+            echo "❌ Timeout en $TIMEOUT segundos" && exit 1
+          fi
+        done
+        echo "✅ Emulador listo"                  # adb viene de platform-tools :contentReference[oaicite:12]{index=12}
+
+  build:
+    commands:
+      - echo "=== Levantando servidor Appium ==="
+      - nohup appium --port 4724 --log-level warn > appium.log 2>&1 &
+      - sleep 10                                   # Dar tiempo a Appium :contentReference[oaicite:13]{index=13}
+
+      - echo "=== Ejecutando tests con Robot Framework ==="
+      - mkdir -p results
+      - robot --loglevel TRACE \
+          --output results/output.xml \
+          tests/*.robot                         # Ejecuta todos los tests :contentReference[oaicite:14]{index=14}
+
+  post_build:
+    commands:
+      - echo "=== Publicando artefactos y logs finales ==="
+      - ls -R results                              # Listado de resultados :contentReference[oaicite:15]{index=15}
+      - tail -n 50 emulator.log                    # Últimas líneas de logs
+      - tail -n 50 appium.log
+
+artifacts:
+  files:
+    - results/**/*
+    - emulator.log
+    - appium.log
+  discard-paths: yes                             # Evita rutas completas en S3 :contentReference[oaicite:16]{index=16}
